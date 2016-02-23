@@ -5,14 +5,19 @@ import android.content.SharedPreferences;
 import android.preference.PreferenceManager;
 import android.text.TextUtils;
 import android.util.Log;
+import com.fsck.k9.mail.AuthType;
+import com.zegoggles.smssync.R;
+import com.zegoggles.smssync.auth.OAuth2Client;
 import com.zegoggles.smssync.auth.TokenRefresher;
 import com.zegoggles.smssync.auth.XOAuthConsumer;
 import org.apache.commons.codec.binary.Base64;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.util.Locale;
 
 import static com.zegoggles.smssync.App.TAG;
+import static com.zegoggles.smssync.preferences.ServerPreferences.Defaults.SERVER_PROTOCOL;
 
 public class AuthPreferences {
     private final Context context;
@@ -20,9 +25,13 @@ public class AuthPreferences {
     private final ServerPreferences serverPreferences;
 
     public AuthPreferences(Context context) {
+        this(context,  new ServerPreferences(context));
+    }
+
+    /* package */ AuthPreferences(Context context, ServerPreferences serverPreferences) {
         this.context = context.getApplicationContext();
+        this.serverPreferences = serverPreferences;
         this.preferences =  PreferenceManager.getDefaultSharedPreferences(this.context);
-        this.serverPreferences = new ServerPreferences(this.context);
     }
 
     /**
@@ -34,26 +43,28 @@ public class AuthPreferences {
      */
     public static final String LOGIN_PASSWORD = "login_password";
     public static final String SERVER_AUTHENTICATION = "server_authentication";
-    private static final String OAUTH_TOKEN = "oauth_token";
-    private static final String OAUTH_TOKEN_SECRET = "oauth_token_secret";
-    private static final String OAUTH_USER = "oauth_user";
+    @Deprecated private static final String OAUTH_TOKEN = "oauth_token";
+    @Deprecated private static final String OAUTH_TOKEN_SECRET = "oauth_token_secret";
+    @Deprecated private static final String OAUTH_USER = "oauth_user";
     private static final String OAUTH2_USER = "oauth2_user";
     private static final String OAUTH2_TOKEN = "oauth2_token";
+    private static final String OAUTH2_REFRESH_TOKEN = "oauth2_refresh_token";
 
     /**
      * IMAP URI.
      *
      * This should be in the form of:
      * <ol>
-     * <li><code>imap+ssl+://xoauth2:ENCODED_USERNAME:ENCODED_TOKEN@imap.gmail.com:993</code></li>
-     * <li><code>imap+ssl+://xoauth:ENCODED_USERNAME:ENCODED_TOKEN@imap.gmail.com:993</code></li>
-     * <li><code>imap+ssl+://ENCODED_USERNAME:ENCODED_PASSWOR@imap.gmail.com:993</code></li>
-     * <li><code>imap://ENCODED_USERNAME:ENCODED_PASSWOR@imap.gmail.com:993</code></li>
-     * <li><code>imap://ENCODED_USERNAME:ENCODED_PASSWOR@imap.gmail.com</code></li>
+     * <li><code>imap+ssl+://XOAUTH2:ENCODED_USERNAME:ENCODED_TOKEN@imap.gmail.com:993</code></li>
+     * <li><code>imap+ssl+://XOAUTH:ENCODED_USERNAME:ENCODED_TOKEN@imap.gmail.com:993</code></li>
+     * <li><code>imap+ssl+://PLAIN:ENCODED_USERNAME:ENCODED_PASSWOR@imap.gmail.com:993</code></li>
+     * <li><code>imap://PLAIN:ENCODED_USERNAME:ENCODED_PASSWOR@imap.gmail.com:993</code></li>
+     * <li><code>imap://PLAIN:ENCODED_USERNAME:ENCODED_PASSWOR@imap.gmail.com</code></li>
      * </ol>
      */
-    private static final String IMAP_URI = "imap%s://%s:%s@%s";
+    private static final String IMAP_URI = "imap%s://%s:%s:%s@%s";
 
+    @Deprecated
     public XOAuthConsumer getOAuthConsumer() {
         return new XOAuthConsumer(
                 getOauthUsername(),
@@ -65,6 +76,11 @@ public class AuthPreferences {
         return getCredentials().getString(OAUTH2_TOKEN, null);
     }
 
+    public String getOauth2RefreshToken() {
+        return getCredentials().getString(OAUTH2_REFRESH_TOKEN, null);
+    }
+
+    @Deprecated
     public boolean hasOauthTokens() {
         return getOauthUsername() != null &&
                 getOauthToken() != null &&
@@ -80,49 +96,59 @@ public class AuthPreferences {
         return preferences.getString(OAUTH_USER, getOauth2Username());
     }
 
-    public void setOauthUsername(String s) {
-        preferences.edit().putString(OAUTH_USER, s).commit();
+    public boolean needsMigration() {
+        return hasOauthTokens() && !hasOAuth2Tokens();
     }
 
-    public void setOauthTokens(String token, String secret) {
-        getCredentials().edit()
-                .putString(OAUTH_TOKEN, token)
-                .putString(OAUTH_TOKEN_SECRET, secret)
-                .commit();
-    }
-
-    public void setOauth2Token(String username, String token) {
+    public void setOauth2Token(String username, String accessToken, String refreshToken) {
         preferences.edit()
                 .putString(OAUTH2_USER, username)
                 .commit();
 
         getCredentials().edit()
-                .putString(OAUTH2_TOKEN, token)
+                .putString(OAUTH2_TOKEN, accessToken)
+                .commit();
+        getCredentials().edit()
+                .putString(OAUTH2_REFRESH_TOKEN, refreshToken)
                 .commit();
     }
 
-   public void clearOauthData() {
+    @Deprecated
+    public void clearOAuth1Data() {
+        preferences.edit().remove(OAUTH_USER).commit();
+        getCredentials().edit()
+                .remove(OAUTH_TOKEN)
+                .remove(OAUTH_TOKEN_SECRET)
+                .commit();
+    }
+
+   public void clearOauth2Data() {
         final String oauth2token = getOauth2Token();
 
         preferences.edit()
-                .remove(OAUTH_USER)
                 .remove(OAUTH2_USER)
                 .commit();
 
         getCredentials().edit()
-                .remove(OAUTH_TOKEN)
-                .remove(OAUTH_TOKEN_SECRET)
                 .remove(OAUTH2_TOKEN)
+                .remove(OAUTH2_REFRESH_TOKEN)
                 .commit();
 
         if (!TextUtils.isEmpty(oauth2token)) {
-            new TokenRefresher(context, this).invalidateToken(oauth2token);
+            new TokenRefresher(context, new OAuth2Client(getOAuth2ClientId()), this).invalidateToken(oauth2token);
         }
     }
 
+    public String getOAuth2ClientId() {
+        return context.getString(R.string.oauth2_client_id);
+    }
 
     public void setImapPassword(String s) {
         getCredentials().edit().putString(LOGIN_PASSWORD, s).commit();
+    }
+
+    public void setImapUser(String s) {
+        preferences.edit().putString(LOGIN_USER, s).commit();
     }
 
     public boolean useXOAuth() {
@@ -154,39 +180,43 @@ public class AuthPreferences {
         if (useXOAuth()) {
             if (hasOauthTokens()) {
                 XOAuthConsumer consumer = getOAuthConsumer();
-                return String.format(IMAP_URI,
-                        ServerPreferences.Defaults.SERVER_PROTOCOL,
-                        "xoauth:" + encode(consumer.getUsername()),
-                        encode(consumer.generateXOAuthString()),
-                        serverPreferences.getServerAddress());
+                return formatUri(AuthType.XOAUTH, SERVER_PROTOCOL, consumer.getUsername(), consumer.generateXOAuthString());
             } else if (hasOAuth2Tokens()) {
-                return String.format(IMAP_URI,
-                        ServerPreferences.Defaults.SERVER_PROTOCOL,
-                        "xoauth2:" + encode(getOauth2Username()),
-                        encode(generateXOAuth2Token()),
-                        serverPreferences.getServerAddress());
+                return formatUri(AuthType.XOAUTH2, SERVER_PROTOCOL, getOauth2Username(), generateXOAuth2Token());
             } else {
                 Log.w(TAG, "No valid xoauth1/2 tokens");
                 return null;
             }
-
         } else {
-            return String.format(IMAP_URI,
+            return formatUri(AuthType.PLAIN,
                     serverPreferences.getServerProtocol(),
-                    encode(getImapUsername()),
-                    encode(getImapPassword()).replace("+", "%20"),
-                    serverPreferences.getServerAddress());
+                    getImapUsername(),
+                    getImapPassword());
         }
     }
 
+    private String formatUri(AuthType authType, String serverProtocol, String username, String password) {
+        return String.format(IMAP_URI,
+                serverProtocol,
+                authType.name().toUpperCase(Locale.US),
+                // NB: there's a bug in K9mail-library which requires double-encoding of uris
+                // https://github.com/k9mail/k-9/commit/b0d401c3b73c6b57402dc81d3cfd6488a71a1b98
+                encode(encode(username)),
+                encode(encode(password)),
+                serverPreferences.getServerAddress());
+    }
+
+    @Deprecated
     private String getOauthTokenSecret() {
         return getCredentials().getString(OAUTH_TOKEN_SECRET, null);
     }
 
+    @Deprecated
     private String getOauthToken() {
         return getCredentials().getString(OAUTH_TOKEN, null);
     }
 
+    @Deprecated
     private String getOauthUsername() {
         return preferences.getString(OAUTH_USER, null);
     }
@@ -197,6 +227,10 @@ public class AuthPreferences {
 
     private AuthMode getAuthMode() {
         return new Preferences(context).getDefaultType(SERVER_AUTHENTICATION, AuthMode.class, AuthMode.XOAUTH);
+    }
+
+    /* package */ void setServerAuthMode(AuthType authType) {
+        preferences.edit().putString(AuthPreferences.SERVER_AUTHENTICATION, authType.name()).commit();
     }
 
     // All sensitive information is stored in a separate prefs file so we can
@@ -214,6 +248,8 @@ public class AuthPreferences {
     }
 
     /**
+     * TODO: this should probably be handled in K9
+     *
      * <p>
      * The SASL XOAUTH2 initial client response has the following format:
      * </p>

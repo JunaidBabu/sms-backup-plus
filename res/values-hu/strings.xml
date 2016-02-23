@@ -103,9 +103,6 @@
   <string name="ui_backup_calllog_label">Hívásnapló mentése</string>
   <string name="ui_backup_calllog_desc">Hívásnapló mentésének engedélyezése</string>
 
-  <string name="ui_backup_whatsapp_label">WhatsApp mentése</string>
-  <string name="ui_backup_whatsapp_desc">WhatsApp üzenetek mentésének engedélyezése</string>
-
   <string name="ui_backup_calllog_sync_calendar_enabled_label">Szinkronizálás naptárral</string>
   <string name="ui_backup_calllog_sync_calendar_enabled_desc">Hívásnapló bejegyzéseinek mentése naptárba</string>
 
@@ -119,12 +116,12 @@
   <string name="ui_imap_folder_calllog_desc">Hívásnapló bejegyzések mentése az itt megadott Gmail címke alá.</string>
   <string name="ui_imap_folder_calllog_label_dialog_msg">A feltöltött hívásnapló bejegyzések az itt megadott címkével lesznek megjelölve Gmailben.</string>
 
-  <string name="ui_imap_folder_whatsapp_label">WhatsApp címkéje</string>
-  <string name="ui_imap_folder_whatsapp_desc">WhatsApp üzenetek mentése az itt megadott Gmail címke alá.</string>
-  <string name="ui_imap_folder_whatsapp_label_dialog_msg">A feltöltött WhatsApp üzenetek az itt megadott címkével lesznek megjelölve Gmailben.</string>
-
   <string name="ui_mark_as_read_label">Megjelölés olvasottként (email)</string>
   <string name="ui_mark_as_read_desc">Üzenetek megjelölése olvasottként Gmailben.</string>
+
+  <string name="mark_as_read_always_read">Mindig jelölje meg olvasottként</string>
+  <string name="mark_as_read_always_unread">Mindig jelölje meg olvasatlanként</string>
+  <string name="mark_as_read_message_status">Használja az üzenet állapotát</string>
 
   <string name="ui_mark_as_read_restore_label">Megjelölés olvasottként (SMS)</string>
   <string name="ui_mark_as_read_restore_desc">Visszaállított üzenetek megjelölése olvasottként.</string>
@@ -155,6 +152,7 @@
 
   <string name="error_wifi_only_no_connection">Nincs WiFi kapcsolat</string>
   <string name="error_no_connection">Nincs internet kapcsolat</string>
+  <string name="error_sms_provider_not_writable">Nem sikerült hozzáférni az SMS tárolóhoz</string>
 
   <string name="ui_dialog_missing_credentials_title">Bejelentkezési információk</string>
 
@@ -183,9 +181,6 @@
   <string name="ui_dialog_brokendroidx_title">DROID X SMS hiba</string>
   <string name="ui_dialog_brokendroidx_msg">Van egy hiba a Droid X készülékekben, amely megakadályozza, hogy az alkalmazás hozzáférjen a bejövő üzenetekhez. További információkért keresse fel a gyakran ismételt kérdéseket a weboldalon.</string>
 
-  <string name="ui_dialog_enable_whatsapp_title">WhatsApp engedélyezése</string>
-  <string name="ui_dialog_enable_whatsapp_message">Az SMS Backup+ képes menteni a WhatsApp üzeneteket. Szeretné engedélyezni?</string>
-
   <string name="ui_sync">Mentés</string>
   <string name="ui_skip">Kihagyás</string>
   <string name="err_sync_requires_login_info">Nem lehet menteni bejelentkezési információk nélkül.</string>
@@ -213,7 +208,6 @@
   <string name="call_duration_field">Hossz: %1$s</string>
 
   <string name="sms_with_field">SMS: %1$s</string>
-  <string name="whatsapp_with_field">WhatsApp: %1$s</string>
   <!-- the subject line needs to be identical otherwise threading will be messed up -->
   <string name="mms_with_field">@string/sms_with_field</string>
   <string name="call_with_field">Hívás: %1$s</string>
@@ -282,10 +276,7 @@
   <string name="sms">SMS</string>
   <string name="mms">MMS</string>
   <string name="calllog">hívásnapló</string>
-  <string name="whatsapp">WhatsApp</string>
 
-  <string name="pref_disable_acra">Hibajelentés küldése</string>
-  <string name="pref_acra_enabled">Az SMS Backup+ automatikusan hibajelentést küld kényszerbezárás esetén.</string>
   <string name="pref_acra_disabled">Letiltva</string>
 
   <string name="app_log_skip_backup_background_data">Kihagyva, mert az adatkapcsolat a háttérben le van tiltva</string>
@@ -345,4 +336,11 @@
   <string name="donation_error_unavailable">nem elérhető</string>
   <string name="donation_error_canceled">megszakítva</string>
   <string name="donation_error_already_owned">Ön már adományozott</string>
+
+  <string name="ui_dialog_sms_default_package_change_title">Frissítési figyelmeztetés</string>
+  <string name="ui_dialog_sms_default_package_change_msg">
+    Az Android KitKat és Lollipop verzióitól kezdve az SMS Backup+ beállítja
+    magát alapértelmezett SMS alkalmazássá visszaállítás közben. A művelet
+    befejezése után vissza kell állítani az eredeti beállítást.
+  </string>
 </resources>

@@ -3,6 +3,7 @@ package com.zegoggles.smssync.service;
 import android.annotation.TargetApi;
 import android.content.Intent;
 import android.os.Build;
+import android.os.PowerManager;
 import android.provider.Telephony;
 import android.util.Log;
 import com.fsck.k9.mail.MessagingException;
@@ -11,7 +12,9 @@ import com.squareup.otto.Produce;
 import com.squareup.otto.Subscribe;
 import com.zegoggles.smssync.App;
 import com.zegoggles.smssync.R;
+import com.zegoggles.smssync.auth.OAuth2Client;
 import com.zegoggles.smssync.auth.TokenRefresher;
+import com.zegoggles.smssync.contacts.ContactAccessor;
 import com.zegoggles.smssync.mail.MessageConverter;
 import com.zegoggles.smssync.mail.PersonLookup;
 import com.zegoggles.smssync.preferences.AuthPreferences;
@@ -56,35 +59,33 @@ public class SmsRestoreService extends ServiceBase {
     }
 
     /**
-     * Android KitKat requires SMS Backup+ to be the default SMS application in order to
+     * Android KitKat and above require SMS Backup+ to be the default SMS application in order to
      * write to the SMS Provider.
      */
     @TargetApi(Build.VERSION_CODES.KITKAT)
     private boolean canWriteToSmsProvider() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) {
-            return true;
-        } else {
-            return getPackageName().equals(Telephony.Sms.getDefaultSmsPackage(this));
-        }
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT ||
+               getPackageName().equals(Telephony.Sms.getDefaultSmsPackage(this));
     }
 
     @Override
     protected void handleIntent(final Intent intent) {
         if (isWorking()) return;
-        if (!canWriteToSmsProvider()) {
-            postError(new SmsProviderNotWritableException());
-            return;
-        }
 
         try {
-            final boolean starredOnly   = getPreferences().isRestoreStarredOnly();
             final boolean restoreCallLog = CALLLOG.isRestoreEnabled(service);
             final boolean restoreSms     = SMS.isRestoreEnabled(service);
+
+            if (restoreSms && !canWriteToSmsProvider()) {
+                postError(new SmsProviderNotWritableException());
+                return;
+            }
 
             MessageConverter converter = new MessageConverter(service,
                     getPreferences(),
                     getAuthPreferences().getUserEmail(),
-                    new PersonLookup(getContentResolver())
+                    new PersonLookup(getContentResolver()),
+                    ContactAccessor.Get.instance()
             );
 
             RestoreConfig config = new RestoreConfig(
@@ -92,13 +93,14 @@ public class SmsRestoreService extends ServiceBase {
                 0,
                 restoreSms,
                 restoreCallLog,
-                starredOnly,
+                getPreferences().isRestoreStarredOnly(),
                 getPreferences().getMaxItemsPerRestore(),
                 0
             );
 
+            final AuthPreferences authPreferences = new AuthPreferences(this);
             new RestoreTask(this, converter, getContentResolver(),
-                    new TokenRefresher(service, new AuthPreferences(this))).execute(config);
+                    new TokenRefresher(service, new OAuth2Client(authPreferences.getOAuth2ClientId()), authPreferences)).execute(config);
 
         } catch (MessagingException e) {
             postError(e);
@@ -138,13 +140,11 @@ public class SmsRestoreService extends ServiceBase {
         if (mState.isInitialState()) return;
 
         if (mState.isRunning()) {
-            if (notification == null) {
-                notification = createNotification(R.string.status_restore);
-            }
-            notification.setLatestEventInfo(this,
-                    getString(R.string.status_restore),
-                    state.getNotificationLabel(getResources()),
-                    getPendingIntent());
+            notification = createNotification(R.string.status_restore)
+                    .setContentTitle(getString(R.string.status_restore))
+                    .setContentText(state.getNotificationLabel(getResources()))
+                    .setContentIntent(getPendingIntent())
+                    .getNotification();
 
             startForeground(RESTORE_ID, notification);
         } else {
@@ -156,6 +156,16 @@ public class SmsRestoreService extends ServiceBase {
 
     @Produce public RestoreState produceLastState() {
         return mState;
+    }
+
+    @Override protected int wakeLockType() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            // hold a full wake lock when restoring on newer version of Android, since
+            // the user needs to switch  back the sms app afterwards
+            return PowerManager.FULL_WAKE_LOCK;
+        } else {
+            return super.wakeLockType();
+        }
     }
 
     public static boolean isServiceWorking() {

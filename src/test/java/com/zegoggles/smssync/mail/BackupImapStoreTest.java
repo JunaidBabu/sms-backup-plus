@@ -1,5 +1,6 @@
 package com.zegoggles.smssync.mail;
 
+import com.fsck.k9.mail.ssl.DefaultTrustedSocketFactory;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
@@ -11,8 +12,7 @@ import static org.fest.assertions.api.Assertions.assertThat;
 
 @RunWith(RobolectricTestRunner.class)
 public class BackupImapStoreTest {
-    @Test
-    public void shouldTestForValidUri() throws Exception {
+    @Test public void shouldTestForValidUri() throws Exception {
         assertThat(isValidUri("imap+ssl+://xoauth:foooo@imap.gmail.com:993")).isTrue();
         assertThat(isValidUri("imap://xoauth:foooo@imap.gmail.com")).isTrue();
         assertThat(isValidUri("imap+ssl+://xoauth:user:token@:993")).isFalse();
@@ -23,8 +23,7 @@ public class BackupImapStoreTest {
         assertThat(isValidUri("http://xoauth:foooo@imap.gmail.com:993")).isFalse();
     }
 
-    @Test
-    public void shouldTestForValidFolder() throws Exception {
+    @Test public void shouldTestForValidFolder() throws Exception {
         assertThat(isValidImapFolder(null)).isFalse();
         assertThat(isValidImapFolder("")).isFalse();
         assertThat(isValidImapFolder("foo")).isTrue();
@@ -38,7 +37,31 @@ public class BackupImapStoreTest {
     @Test public void testAccountHasStoreUri() throws Exception {
         String uri = "imap://xoauth:foooo@imap.gmail.com";
         BackupImapStore store = new BackupImapStore(Robolectric.application, uri);
-        assertThat(store.getAccount().getStoreUri()).isEqualTo(uri);
+        assertThat(store.getStoreUri()).isEqualTo(uri);
+    }
+
+    @Test public void testShouldCreateCorrectTrustFactoryForTrustedSSLUrl() throws Exception {
+        String uri = "imap+ssl+://xoauth:foooo@imap.gmail.com";
+        BackupImapStore store = new BackupImapStore(Robolectric.application, uri);
+        assertThat(store.getTrustedSocketFactory()).isInstanceOf(DefaultTrustedSocketFactory.class);
+    }
+
+    @Test public void testShouldCreateCorrectTrustFactoryForTrustAllSSLUrl() throws Exception {
+        String uri = "imap+ssl://xoauth:foooo@imap.gmail.com";
+        BackupImapStore store = new BackupImapStore(Robolectric.application, uri);
+        assertThat(store.getTrustedSocketFactory()).isInstanceOf(AllTrustedSocketFactory.class);
+    }
+
+    @Test public void testShouldCreateCorrectTrustFactoryForTrustedTLSUrl() throws Exception {
+        String uri = "imap+tls+://xoauth:foooo@imap.gmail.com";
+        BackupImapStore store = new BackupImapStore(Robolectric.application, uri);
+        assertThat(store.getTrustedSocketFactory()).isInstanceOf(DefaultTrustedSocketFactory.class);
+    }
+
+    @Test public void testShouldCreateCorrectTrustFactoryForTrustAllTLSUrl() throws Exception {
+        String uri = "imap+tls://xoauth:foooo@imap.gmail.com";
+        BackupImapStore store = new BackupImapStore(Robolectric.application, uri);
+        assertThat(store.getTrustedSocketFactory()).isInstanceOf(AllTrustedSocketFactory.class);
     }
 
     @Test public void shouldHaveToStringWithObfuscatedStoreURI() throws Exception {

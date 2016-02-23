@@ -75,7 +75,7 @@
   <string name="ui_server_desc">The address of the server you wish to sync to incl. its port.</string>
   <string name="ui_server_dialog_msg">Default for gmail is \"imap.gmail.com:993\"</string>
   <string name="ui_protocol_label">Security</string>
-  <string name="ui_protocol_desc">The security protocol of the server. Default for gmail is \"SSL (Required)\"."</string>
+  <string name="ui_protocol_desc">The security protocol of the server. Default for gmail is \"SSL\"."</string>
   <string name="ui_authentication_label">Authentication</string>
   <string name="ui_authentication_desc">The authentication method. Default for gmail is \"XOAuth\".</string>
   <string name="plain">Plain text</string>
@@ -90,7 +90,7 @@
   <string name="ui_max_items_per_sync_label">Items per backup</string>
   <string name="ui_max_items_per_sync_desc">Maximum number of items per backup.</string>
   <string name="ui_max_items_per_restore_label">Items per restore</string>
-  <string name="ui_max_items_per_restore_desc">Maximum number of restored messages.</string>
+  <string name="ui_max_items_per_restore_desc">Number of latest messages to restore.</string>
 
   <string name="ui_restore_starred_only_label">Starred items</string>
   <string name="ui_restore_starred_only_desc">Only restore starred items.</string>
@@ -102,10 +102,7 @@
   <string name="ui_backup_calllog_label">Backup Call log</string>
   <string name="ui_backup_calllog_desc">Enable Call log backup</string>
 
-  <string name="ui_backup_whatsapp_label">Backup WhatsApp</string>
-  <string name="ui_backup_whatsapp_desc">Enable WhatsApp backup</string>
-
-    <string name="ui_backup_calllog_sync_calendar_enabled_label">Calendar sync</string>
+  <string name="ui_backup_calllog_sync_calendar_enabled_label">Calendar sync</string>
   <string name="ui_backup_calllog_sync_calendar_enabled_desc">Add call log entries to calendar</string>
 
   <string name="ui_backup_calllog_types_label">Call types</string>
@@ -118,12 +115,12 @@
   <string name="ui_imap_folder_calllog_desc">Gmail label assigned to call log.</string>
    <string name="ui_imap_folder_calllog_label_dialog_msg">Backed up call log entries will be tagged with this label in Gmail.</string>
 
-  <string name="ui_imap_folder_whatsapp_label">WhatsApp label</string>
-  <string name="ui_imap_folder_whatsapp_desc">Gmail label assigned to WhatsApp.</string>
-  <string name="ui_imap_folder_whatsapp_label_dialog_msg">Backed up WhatsApp messages will be tagged with this label in Gmail.</string>
-
   <string name="ui_mark_as_read_label">Mark as read (emails)</string>
   <string name="ui_mark_as_read_desc">Whether to mark messages in Gmail as read or not.</string>
+
+  <string name="mark_as_read_always_read">Always mark as read</string>
+  <string name="mark_as_read_always_unread">Always mark as unread</string>
+  <string name="mark_as_read_message_status">Use message status</string>
 
   <string name="ui_mark_as_read_restore_label">Mark as read (SMS)</string>
   <string name="ui_mark_as_read_restore_desc">Whether to mark all restored SMS as read or not.</string>
@@ -189,11 +186,6 @@
   prevents this application from backing up incoming messages. See the FAQ
   on the website for more information.</string>
 
-  <string name="ui_dialog_enable_whatsapp_title">Enable WhatsApp</string>
-  <string name="ui_dialog_enable_whatsapp_message">
-      SMS Backup+ can now also back up your WhatsApp messages.
-      Do you want to enable this?</string>
-
   <string name="ui_sync">Backup</string>
   <string name="ui_skip">Skip</string>
   <string name="err_sync_requires_login_info">Cannot backup without login information.</string>
@@ -222,8 +214,6 @@
   <string name="call_duration_field">Duration: %1$s</string>
 
   <string name="sms_with_field">SMS with %1$s</string>
-  <string name="whatsapp_with_field">WhatsApp chat with %1$s</string>
-  <!-- the subject line needs to be identical otherwise threading will be messed up -->
   <string name="mms_with_field">@string/sms_with_field</string>
   <string name="call_with_field">Call with %1$s</string>
 
@@ -252,10 +242,10 @@
   <string name="_3mins">3 mins</string>
   <string name="_30mins">30 mins</string>
 
-  <string name="ssl_required">SSL (Required)</string>
-  <string name="ssl_optional">SSL (Optional)</string>
-  <string name="tls_required">TLS (Required)</string>
-  <string name="tls_optional">TLS (Optional)</string>
+  <string name="ssl_required">SSL</string>
+  <string name="ssl_optional">SSL (trust all)</string>
+  <string name="tls_required">TLS</string>
+  <string name="tls_optional">TLS (trust all)</string>
   <string name="none">None</string>
 
   <string name="ui_third_party_integration_label">3rd party integration</string>
@@ -291,10 +281,7 @@
   <string name="sms">SMS</string>
   <string name="mms">MMS</string>
   <string name="calllog">Call log</string>
-  <string name="whatsapp">WhatsApp</string>
 
-  <string name="pref_disable_acra">Crash error reporting</string>
-  <string name="pref_acra_enabled">SMS Backup+ will automatically send an error report after force closing.</string>
   <string name="pref_acra_disabled">Disabled</string>
 
   <string name="app_log_skip_backup_background_data">Skipped because background data is disabled</string>
@@ -356,4 +343,11 @@
   <string name="donation_error_unavailable">not available</string>
   <string name="donation_error_canceled">canceled</string>
   <string name="donation_error_already_owned">you have already donated</string>
+
+  <string name="ui_dialog_sms_default_package_change_title">Upgrade notice</string>
+  <string name="ui_dialog_sms_default_package_change_msg">
+    In order to restore your messages on Android KitKat and Lollipop you need
+    to set SMS Backup+ as your SMS app during the restore operation. You will
+    get asked to change it back to the original setting after restoring.
+  </string>
 </resources>

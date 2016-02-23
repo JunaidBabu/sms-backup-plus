@@ -5,8 +5,8 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import com.fsck.k9.mail.Message;
-import com.fsck.k9.mail.XOAuth2AuthenticationFailedException;
 import com.fsck.k9.mail.internet.MimeMessage;
+import com.fsck.k9.mail.store.XOAuth2AuthenticationFailedException;
 import com.zegoggles.smssync.auth.TokenRefreshException;
 import com.zegoggles.smssync.auth.TokenRefresher;
 import com.zegoggles.smssync.contacts.ContactAccessor;
@@ -32,14 +32,23 @@ import org.robolectric.RobolectricTestRunner;
 import java.util.EnumSet;
 import java.util.HashMap;
 
-import static com.zegoggles.smssync.mail.DataType.*;
+import static com.zegoggles.smssync.mail.DataType.CALLLOG;
+import static com.zegoggles.smssync.mail.DataType.MMS;
+import static com.zegoggles.smssync.mail.DataType.SMS;
 import static com.zegoggles.smssync.service.BackupItemsFetcher.emptyCursor;
 import static org.fest.assertions.api.Assertions.assertThat;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Matchers.notNull;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.anyListOf;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyZeroInteractions;
+import static org.mockito.Mockito.when;
 import static org.mockito.MockitoAnnotations.initMocks;
 
 @RunWith(RobolectricTestRunner.class)
@@ -101,7 +110,7 @@ public class BackupTaskTest {
 
         BackupState finalState = task.doInBackground(config);
 
-        verify(folder).appendMessages(any(Message[].class));
+        verify(folder).appendMessages(anyListOf(Message.class));
 
         verify(service).transition(SmsSyncState.LOGIN, null);
         verify(service).transition(SmsSyncState.CALC, null);
@@ -124,7 +133,7 @@ public class BackupTaskTest {
 
         assertThat(finalState.currentSyncedItems).isEqualTo(3);
 
-        verify(folder, times(3)).appendMessages(any(Message[].class));
+        verify(folder, times(3)).appendMessages(anyListOf(Message.class));
     }
 
     @Test public void shouldCreateFoldersLazilyOnlyForNeededTypes() throws Exception {
@@ -138,7 +147,6 @@ public class BackupTaskTest {
         verify(store).getFolder(SMS);
         verify(store, never()).getFolder(MMS);
         verify(store, never()).getFolder(CALLLOG);
-        verify(store, never()).getFolder(WHATSAPP);
     }
 
     @Test public void shouldCloseImapFolderAfterBackup() throws Exception {

@@ -17,12 +17,10 @@
 package com.zegoggles.smssync;
 
 import android.app.Application;
-import com.fsck.k9.K9;
+import com.fsck.k9.mail.K9MailLib;
 import com.squareup.otto.Bus;
-import org.acra.ACRA;
-import org.acra.annotation.ReportsCrashes;
+import com.zegoggles.smssync.preferences.Preferences;
 
-@ReportsCrashes(formUri = "https://bugsense.appspot.com/api/acra?api_key=a2603e16", formKey = "")
 public class App extends Application {
     public static final boolean DEBUG = BuildConfig.DEBUG;
     public static final boolean LOCAL_LOGV = DEBUG;
@@ -33,10 +31,18 @@ public class App extends Application {
 
     @Override
     public void onCreate() {
-        if (!DEBUG) ACRA.init(this);
         super.onCreate();
-        K9.app = this;
-        K9.DEBUG = DEBUG;
-        K9.DEBUG_PROTOCOL_IMAP = DEBUG;
+        final Preferences preferences = new Preferences(this);
+        K9MailLib.setDebugStatus(new K9MailLib.DebugStatus() {
+            @Override
+            public boolean enabled() {
+                return preferences.isAppLogDebug();
+            }
+
+            @Override
+            public boolean debugSensitive() {
+                return false;
+            }
+        });
     }
 }

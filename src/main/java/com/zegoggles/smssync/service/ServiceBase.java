@@ -27,6 +27,7 @@ import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.support.v4.app.NotificationCompat;
 import android.text.format.DateFormat;
 import android.util.Log;
 import com.fsck.k9.mail.MessagingException;
@@ -62,7 +63,13 @@ public abstract class ServiceBase extends Service {
     public void onCreate() {
         super.onCreate();
         if (new Preferences(this).isAppLogEnabled()) {
-            this.appLog = new AppLog(DateFormat.getDateFormatOrder(this));
+            char[] format;
+            try {
+                format = DateFormat.getDateFormatOrder(this);
+            } catch (IllegalArgumentException e) {
+                format = new char[] { 'd' };
+            }
+            this.appLog = new AppLog(format);
         }
         App.bus.register(this);
     }
@@ -99,7 +106,7 @@ public abstract class ServiceBase extends Service {
         if (!BackupImapStore.isValidUri(uri)) {
             throw new MessagingException("No valid IMAP URI: "+uri);
         }
-        return new BackupImapStore(this, uri);
+        return new BackupImapStore(getApplicationContext(), uri);
     }
 
     protected AuthPreferences getAuthPreferences() {
@@ -110,10 +117,10 @@ public abstract class ServiceBase extends Service {
         return new Preferences(this);
     }
 
-    protected void acquireLocks() {
+    protected synchronized void acquireLocks() {
         if (mWakeLock == null) {
             PowerManager pMgr = (PowerManager) getSystemService(POWER_SERVICE);
-            mWakeLock = pMgr.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, TAG);
+            mWakeLock = pMgr.newWakeLock(wakeLockType(), TAG);
         }
         mWakeLock.acquire();
 
@@ -127,13 +134,17 @@ public abstract class ServiceBase extends Service {
         }
     }
 
+    protected int wakeLockType() {
+        return PowerManager.PARTIAL_WAKE_LOCK;
+    }
+
     @TargetApi(Build.VERSION_CODES.HONEYCOMB_MR1)
     private int getWifiLockType() {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB_MR1 ?
                 WifiManager.WIFI_MODE_FULL_HIGH_PERF : WifiManager.WIFI_MODE_FULL;
     }
 
-    protected void releaseLocks() {
+    protected synchronized void releaseLocks() {
         if (mWakeLock != null && mWakeLock.isHeld()) {
             mWakeLock.release();
             mWakeLock = null;
@@ -178,12 +189,12 @@ public abstract class ServiceBase extends Service {
         return (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
     }
 
-    protected Notification createNotification(int resId) {
-        Notification n = new Notification(R.drawable.ic_notification,
-                getString(resId),
-                System.currentTimeMillis());
-        n.flags = Notification.FLAG_ONGOING_EVENT;
-        return n;
+    protected @NotNull NotificationCompat.Builder createNotification(int resId) {
+        return new NotificationCompat.Builder(this)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setTicker(getString(resId))
+                .setWhen(System.currentTimeMillis())
+                .setOngoing(true);
     }
 
     protected PendingIntent getPendingIntent() {

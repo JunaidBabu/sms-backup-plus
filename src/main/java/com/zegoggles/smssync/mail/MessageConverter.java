@@ -22,17 +22,19 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteException;
 import android.net.Uri;
 import android.provider.CallLog;
+import android.provider.Telephony;
 import android.util.Log;
 import com.fsck.k9.mail.Address;
 import com.fsck.k9.mail.Flag;
 import com.fsck.k9.mail.Message;
 import com.fsck.k9.mail.MessagingException;
+import com.fsck.k9.mail.internet.MimeUtility;
 import com.zegoggles.smssync.MmsConsts;
-import com.zegoggles.smssync.SmsConsts;
 import com.zegoggles.smssync.contacts.ContactAccessor;
 import com.zegoggles.smssync.contacts.ContactGroup;
 import com.zegoggles.smssync.contacts.ContactGroupIds;
 import com.zegoggles.smssync.preferences.AddressStyle;
+import com.zegoggles.smssync.preferences.MarkAsReadTypes;
 import com.zegoggles.smssync.preferences.Preferences;
 import com.zegoggles.smssync.utils.ThreadHelper;
 import org.apache.commons.io.IOUtils;
@@ -56,14 +58,17 @@ public class MessageConverter {
     private final Context mContext;
     private final ThreadHelper threadHelper = new ThreadHelper();
 
-    private final boolean mMarkAsRead;
+    private final MarkAsReadTypes mMarkAsReadType;
     private final PersonLookup mPersonLookup;
     private final MessageGenerator mMessageGenerator;
     private final boolean mMarkAsReadOnRestore;
 
-    public MessageConverter(Context context, Preferences preferences, String userEmail, PersonLookup personLookup) {
+    public MessageConverter(Context context, Preferences preferences,
+                            String userEmail,
+                            PersonLookup personLookup,
+                            ContactAccessor contactAccessor) {
         mContext = context;
-        mMarkAsRead = preferences.getMarkAsRead();
+        mMarkAsReadType = preferences.getMarkAsReadType();
         mPersonLookup = personLookup;
         mMarkAsReadOnRestore = preferences.getMarkAsReadOnRestore();
 
@@ -74,7 +79,7 @@ public class MessageConverter {
         }
 
         final ContactGroup backupContactGroup = preferences.getBackupContactGroup();
-        ContactGroupIds allowedIds = ContactAccessor.Get.instance().getGroupContactIds(context.getContentResolver(), backupContactGroup);
+        ContactGroupIds allowedIds = contactAccessor.getGroupContactIds(context.getContentResolver(), backupContactGroup);
         if (LOCAL_LOGV) Log.v(TAG, "whitelisted ids for backup: " + allowedIds);
 
         mMessageGenerator = new MessageGenerator(mContext,
@@ -87,22 +92,33 @@ public class MessageConverter {
                 new MmsSupport(mContext.getContentResolver(), mPersonLookup));
     }
 
+    private boolean markAsSeen(DataType dataType, Map<String, String> msgMap) {
+        switch (mMarkAsReadType) {
+            case MESSAGE_STATUS:
+                switch (dataType) {
+                    case SMS:
+                        return "1".equals(msgMap.get(Telephony.TextBasedSmsColumns.READ));
+                    case MMS:
+                        return "1".equals(msgMap.get(Telephony.BaseMmsColumns.READ));
+                    default:
+                        return true;
+                }
+            case UNREAD:
+                return false;
+            case READ:
+            default:
+                return true;
+        }
+    }
+
     public @NotNull ConversionResult convertMessages(final Cursor cursor, DataType dataType)
             throws MessagingException {
 
         final Map<String, String> msgMap = getMessageMap(cursor);
-        final Message m;
-        switch (dataType) {
-            case WHATSAPP:
-                m = mMessageGenerator.messageFromMapWhatsApp(cursor);
-                break;
-            default:
-                m = mMessageGenerator.messageForDataType(msgMap, dataType);
-                break;
-        }
+        final Message m = mMessageGenerator.messageForDataType(msgMap, dataType);
         final ConversionResult result = new ConversionResult(dataType);
         if (m != null) {
-            m.setFlag(Flag.SEEN, mMarkAsRead);
+            m.setFlag(Flag.SEEN, markAsSeen(dataType, msgMap));
             result.add(m, msgMap);
         }
 
@@ -110,7 +126,7 @@ public class MessageConverter {
     }
 
 
-    public ContentValues messageToContentValues(final Message message)
+    public @NotNull ContentValues messageToContentValues(final Message message)
             throws IOException, MessagingException {
         if (message == null) throw new MessagingException("message is null");
 
@@ -119,21 +135,21 @@ public class MessageConverter {
             case SMS:
                 if (message.getBody() == null) throw new MessagingException("body is null");
 
-                InputStream is = message.getBody().getInputStream();
+                InputStream is = MimeUtility.decodeBody(message.getBody());
                 if (is == null) {
                     throw new MessagingException("body.getInputStream() is null for " + message.getBody());
                 }
                 final String body = IOUtils.toString(is);
                 final String address = Headers.get(message, Headers.ADDRESS);
-                values.put(SmsConsts.BODY, body);
-                values.put(SmsConsts.ADDRESS, address);
-                values.put(SmsConsts.TYPE, Headers.get(message, Headers.TYPE));
-                values.put(SmsConsts.PROTOCOL, Headers.get(message, Headers.PROTOCOL));
-                values.put(SmsConsts.SERVICE_CENTER, Headers.get(message, Headers.SERVICE_CENTER));
-                values.put(SmsConsts.DATE, Headers.get(message, Headers.DATE));
-                values.put(SmsConsts.STATUS, Headers.get(message, Headers.STATUS));
-                values.put(SmsConsts.THREAD_ID, threadHelper.getThreadId(mContext, address));
-                values.put(SmsConsts.READ,
+                values.put(Telephony.TextBasedSmsColumns.BODY, body);
+                values.put(Telephony.TextBasedSmsColumns.ADDRESS, address);
+                values.put(Telephony.TextBasedSmsColumns.TYPE, Headers.get(message, Headers.TYPE));
+                values.put(Telephony.TextBasedSmsColumns.PROTOCOL, Headers.get(message, Headers.PROTOCOL));
+                values.put(Telephony.TextBasedSmsColumns.SERVICE_CENTER, Headers.get(message, Headers.SERVICE_CENTER));
+                values.put(Telephony.TextBasedSmsColumns.DATE, Headers.get(message, Headers.DATE));
+                values.put(Telephony.TextBasedSmsColumns.STATUS, Headers.get(message, Headers.STATUS));
+                values.put(Telephony.TextBasedSmsColumns.THREAD_ID, threadHelper.getThreadId(mContext, address));
+                values.put(Telephony.TextBasedSmsColumns.READ,
                         mMarkAsReadOnRestore ? "1" : Headers.get(message, Headers.READ));
                 break;
             case CALLLOG:

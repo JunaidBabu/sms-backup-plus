@@ -19,6 +19,7 @@ package com.zegoggles.smssync.service;
 import android.app.Notification;
 import android.content.Intent;
 import android.net.NetworkInfo;
+import android.support.v4.app.NotificationCompat;
 import android.text.format.DateFormat;
 import android.util.Log;
 import com.fsck.k9.mail.MessagingException;
@@ -27,6 +28,7 @@ import com.squareup.otto.Subscribe;
 import com.zegoggles.smssync.App;
 import com.zegoggles.smssync.Consts;
 import com.zegoggles.smssync.R;
+import com.zegoggles.smssync.auth.OAuth2Client;
 import com.zegoggles.smssync.mail.BackupImapStore;
 import com.zegoggles.smssync.mail.DataType;
 import com.zegoggles.smssync.service.exception.BackupDisabledException;
@@ -37,6 +39,7 @@ import com.zegoggles.smssync.service.exception.RequiresLoginException;
 import com.zegoggles.smssync.service.exception.RequiresWifiException;
 import com.zegoggles.smssync.service.state.BackupState;
 import com.zegoggles.smssync.service.state.SmsSyncState;
+import com.zegoggles.smssync.tasks.MigrateOAuth1TokenTask;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -46,10 +49,13 @@ import java.util.EnumSet;
 import static com.zegoggles.smssync.App.LOCAL_LOGV;
 import static com.zegoggles.smssync.App.TAG;
 import static com.zegoggles.smssync.service.BackupType.MANUAL;
-import static com.zegoggles.smssync.service.state.SmsSyncState.*;
+import static com.zegoggles.smssync.service.state.SmsSyncState.ERROR;
+import static com.zegoggles.smssync.service.state.SmsSyncState.FINISHED_BACKUP;
+import static com.zegoggles.smssync.service.state.SmsSyncState.INITIAL;
 
 public class SmsBackupService extends ServiceBase {
     private static final int BACKUP_ID = 1;
+    private static final int NOTIFICATION_ID_WARNING = 1;
 
     @Nullable private static SmsBackupService service;
     @NotNull private BackupState mState = new BackupState();
@@ -81,16 +87,21 @@ public class SmsBackupService extends ServiceBase {
                 ", type="+backupType+")");
 
         appLog(R.string.app_log_backup_requested, getString(backupType.resId));
-
         // Only start a backup if there's no other operation going on at this time.
         if (!isWorking() && !SmsRestoreService.isServiceWorking()) {
-            backup(backupType, intent.getBooleanExtra(Consts.KEY_SKIP_MESSAGES, false));
+            if (getAuthPreferences().needsMigration()) {
+                runMigration();
+            } else {
+                backup(backupType, intent.getBooleanExtra(Consts.KEY_SKIP_MESSAGES, false));
+            }
         } else {
             appLog(R.string.app_log_skip_backup_already_running);
         }
     }
 
     private void backup(BackupType backupType, boolean skip) {
+        getNotifier().cancel(NOTIFICATION_ID_WARNING);
+
         try {
             // set initial state
             mState = new BackupState(INITIAL, 0, 0, backupType, null, null);
@@ -215,6 +226,7 @@ public class SmsBackupService extends ServiceBase {
 
             if (shouldNotifyUser(state)) {
                 notifyUser(android.R.drawable.stat_sys_warning,
+                    NOTIFICATION_ID_WARNING,
                     getString(R.string.notification_auth_failure),
                     getString(getAuthPreferences().useXOAuth() ? R.string.status_auth_failure_details_xoauth : R.string.status_auth_failure_details_plain));
             }
@@ -225,6 +237,7 @@ public class SmsBackupService extends ServiceBase {
 
             if (shouldNotifyUser(state)) {
                 notifyUser(android.R.drawable.stat_sys_warning,
+                    NOTIFICATION_ID_WARNING,
                     getString(R.string.notification_general_error),
                     state.getErrorMessage(getResources()));
             }
@@ -237,14 +250,11 @@ public class SmsBackupService extends ServiceBase {
     }
 
     private void notifyAboutBackup(BackupState state) {
-        if (notification == null) {
-            notification = createNotification(R.string.status_backup);
-        }
-        notification.setLatestEventInfo(this,
-            getString(R.string.status_backup),
-            state.getNotificationLabel(getResources()),
-            getPendingIntent());
-
+        NotificationCompat.Builder builder = createNotification(R.string.status_backup);
+        notification = builder.setContentTitle(getString(R.string.status_backup))
+                .setContentText(state.getNotificationLabel(getResources()))
+                .setContentIntent(getPendingIntent())
+                .getNotification();
         startForeground(BACKUP_ID, notification);
     }
 
@@ -258,17 +268,18 @@ public class SmsBackupService extends ServiceBase {
         }
     }
 
-    protected void notifyUser(int icon, String title, String text) {
-        Notification n = new Notification(icon,
-                getString(R.string.app_name),
-                System.currentTimeMillis());
-        n.flags = Notification.FLAG_ONLY_ALERT_ONCE | Notification.FLAG_AUTO_CANCEL;
-        n.setLatestEventInfo(this,
-                title,
-                text,
-                getPendingIntent());
-
-        getNotifier().notify(0, n);
+    protected void notifyUser(int icon, int notificationId, String title, String text) {
+        Notification n = new NotificationCompat.Builder(this)
+                .setSmallIcon(icon)
+                .setWhen(System.currentTimeMillis())
+                .setOnlyAlertOnce(true)
+                .setAutoCancel(true)
+                .setContentText(text)
+                .setTicker(getString(R.string.app_name))
+                .setContentTitle(title)
+                .setContentIntent(getPendingIntent())
+                .getNotification();
+        getNotifier().notify(notificationId, n);
     }
 
     protected Alarms getAlarms() {
@@ -281,5 +292,16 @@ public class SmsBackupService extends ServiceBase {
 
     public BackupState transition(SmsSyncState newState, Exception e) {
         return mState.transition(newState, e);
+    }
+
+    @Deprecated
+    private void runMigration() {
+        appLogDebug("running OAuth1 migration");
+        final MigrateOAuth1TokenTask migrationTask = new MigrateOAuth1TokenTask(
+                getAuthPreferences().getOAuthConsumer(),
+                new OAuth2Client(getAuthPreferences().getOAuth2ClientId()),
+                getAuthPreferences());
+
+        migrationTask.execute();
     }
 }

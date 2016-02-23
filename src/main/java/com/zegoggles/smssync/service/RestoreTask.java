@@ -6,16 +6,16 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.provider.CallLog;
+import android.provider.Telephony;
 import android.util.Log;
 import com.fsck.k9.mail.AuthenticationFailedException;
 import com.fsck.k9.mail.FetchProfile;
 import com.fsck.k9.mail.Message;
 import com.fsck.k9.mail.MessagingException;
-import com.fsck.k9.mail.XOAuth2AuthenticationFailedException;
+import com.fsck.k9.mail.store.XOAuth2AuthenticationFailedException;
 import com.squareup.otto.Subscribe;
 import com.zegoggles.smssync.App;
 import com.zegoggles.smssync.Consts;
-import com.zegoggles.smssync.SmsConsts;
 import com.zegoggles.smssync.auth.TokenRefreshException;
 import com.zegoggles.smssync.auth.TokenRefresher;
 import com.zegoggles.smssync.mail.BackupImapStore;
@@ -27,6 +27,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -35,7 +36,13 @@ import static com.zegoggles.smssync.App.LOCAL_LOGV;
 import static com.zegoggles.smssync.App.TAG;
 import static com.zegoggles.smssync.mail.DataType.CALLLOG;
 import static com.zegoggles.smssync.mail.DataType.SMS;
-import static com.zegoggles.smssync.service.state.SmsSyncState.*;
+import static com.zegoggles.smssync.service.state.SmsSyncState.CALC;
+import static com.zegoggles.smssync.service.state.SmsSyncState.CANCELED_RESTORE;
+import static com.zegoggles.smssync.service.state.SmsSyncState.ERROR;
+import static com.zegoggles.smssync.service.state.SmsSyncState.FINISHED_RESTORE;
+import static com.zegoggles.smssync.service.state.SmsSyncState.LOGIN;
+import static com.zegoggles.smssync.service.state.SmsSyncState.RESTORE;
+import static com.zegoggles.smssync.service.state.SmsSyncState.UPDATING_THREADS;
 
 class RestoreTask extends AsyncTask<RestoreConfig, RestoreState, RestoreState> {
     private Set<String> smsIds = new HashSet<String>();
@@ -114,10 +121,7 @@ class RestoreTask extends AsyncTask<RestoreConfig, RestoreState, RestoreState> {
                         service.clearCache();
                     }
                 }
-                if (!isCancelled()) {
-                    publishProgress(UPDATING_THREADS);
-                    updateAllThreads();
-                }
+                updateAllThreadsIfAnySmsRestored();
             } else {
                 Log.d(TAG, "nothing to restore");
             }
@@ -134,6 +138,7 @@ class RestoreTask extends AsyncTask<RestoreConfig, RestoreState, RestoreState> {
             return transition(ERROR, e);
         } catch (MessagingException e) {
             Log.e(TAG, "error", e);
+            updateAllThreadsIfAnySmsRestored();
             return transition(ERROR, e);
         } catch (IllegalStateException e) {
             // usually memory problems (Couldn't init cursor window)
@@ -214,7 +219,7 @@ class RestoreTask extends AsyncTask<RestoreConfig, RestoreState, RestoreState> {
         DataType dataType = null;
         try {
             if (LOCAL_LOGV) Log.v(TAG, "fetching message uid " + message.getUid());
-            message.getFolder().fetch(new Message[]{message}, fp, null);
+            message.getFolder().fetch(Arrays.asList(message), fp, null);
             dataType = converter.getDataType(message);
             //only restore sms+call log for now
             switch (dataType) {
@@ -242,15 +247,15 @@ class RestoreTask extends AsyncTask<RestoreConfig, RestoreState, RestoreState> {
     private void importSms(final Message message) throws IOException, MessagingException {
         if (LOCAL_LOGV) Log.v(TAG, "importSms(" + message + ")");
         final ContentValues values = converter.messageToContentValues(message);
-        final Integer type = values.getAsInteger(SmsConsts.TYPE);
+        final Integer type = values.getAsInteger(Telephony.TextBasedSmsColumns.TYPE);
 
         // only restore inbox messages and sent messages - otherwise sms might get sent on restore
-        if (type != null && (type == SmsConsts.MESSAGE_TYPE_INBOX || type == SmsConsts.MESSAGE_TYPE_SENT) && !smsExists(values)) {
+        if (type != null && (type == Telephony.TextBasedSmsColumns.MESSAGE_TYPE_INBOX || type == Telephony.TextBasedSmsColumns.MESSAGE_TYPE_SENT) && !smsExists(values)) {
 
             final Uri uri = resolver.insert(Consts.SMS_PROVIDER, values);
             if (uri != null) {
                 smsIds.add(uri.getLastPathSegment());
-                Long timestamp = values.getAsLong(SmsConsts.DATE);
+                Long timestamp = values.getAsLong(Telephony.TextBasedSmsColumns.DATE);
 
                 if (timestamp != null && SMS.getMaxSyncedDate(service) < timestamp) {
                     SMS.setMaxSyncedDate(service, timestamp);
@@ -277,8 +282,9 @@ class RestoreTask extends AsyncTask<RestoreConfig, RestoreState, RestoreState> {
     private boolean callLogExists(ContentValues values) {
         Cursor c = resolver.query(Consts.CALLLOG_PROVIDER,
             new String[] { "_id" },
-            "number = ? AND duration = ? AND type = ?",
+            "date = ? AND number = ? AND duration = ? AND type = ?",
             new String[]{
+                values.getAsString(CallLog.Calls.DATE),
                 values.getAsString(CallLog.Calls.NUMBER),
                 values.getAsString(CallLog.Calls.DURATION),
                 values.getAsString(CallLog.Calls.TYPE)
@@ -299,9 +305,9 @@ class RestoreTask extends AsyncTask<RestoreConfig, RestoreState, RestoreState> {
             new String[] {"_id" },
             "date = ? AND address = ? AND type = ?",
             new String[] {
-                values.getAsString(SmsConsts.DATE),
-                values.getAsString(SmsConsts.ADDRESS),
-                values.getAsString(SmsConsts.TYPE)
+                values.getAsString(Telephony.TextBasedSmsColumns.DATE),
+                values.getAsString(Telephony.TextBasedSmsColumns.ADDRESS),
+                values.getAsString(Telephony.TextBasedSmsColumns.TYPE)
             },
             null
         );
@@ -314,10 +320,17 @@ class RestoreTask extends AsyncTask<RestoreConfig, RestoreState, RestoreState> {
         return exists;
     }
 
+    private void updateAllThreadsIfAnySmsRestored() {
+        if (smsIds.size() > 0) {
+            updateAllThreads();
+        }
+    }
+
     private void updateAllThreads() {
         // thread dates + states might be wrong, we need to force a full update
         // unfortunately there's no direct way to do that in the SDK, but passing a
         // negative conversation id to delete should to the trick
+        publishProgress(UPDATING_THREADS);
         Log.d(TAG, "updating threads");
         resolver.delete(Uri.parse("content://sms/conversations/-1"), null, null);
         Log.d(TAG, "finished");

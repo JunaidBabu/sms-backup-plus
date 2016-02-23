@@ -79,23 +79,6 @@
                     android:persistent="true"
                     android:defaultValue="true"/>
 
-            <CheckBoxPreference
-                    android:key="backup_whatsapp"
-                    android:title="@string/ui_backup_whatsapp_label"
-                    android:summary="@string/ui_backup_whatsapp_desc"
-                    android:persistent="true"
-                    android:defaultValue="false"/>
-
-            <EditTextPreference
-                    android:key="imap_folder_whatsapp"
-                    android:dependency="backup_whatsapp"
-                    android:title="@string/ui_imap_folder_whatsapp_label"
-                    android:summary="@string/ui_imap_folder_whatsapp_desc"
-                    android:singleLine="true"
-                    android:dialogMessage="@string/ui_imap_folder_whatsapp_label_dialog_msg"
-                    android:persistent="true"
-                    android:defaultValue="WhatsApp"/>
-
             <PreferenceScreen
                     android:title="@string/ui_backup_calllog_settings_label"
                     android:dependency="backup_calllog">
@@ -145,12 +128,14 @@
                     android:defaultValue="-1"
                     android:persistent="true"/>
 
-            <CheckBoxPreference
-                    android:key="mark_as_read"
+            <ListPreference
+                    android:key="mark_as_read_types"
                     android:title="@string/ui_mark_as_read_label"
                     android:summary="@string/ui_mark_as_read_desc"
+                    android:entries="@array/mark_as_read_entries"
+                    android:entryValues="@array/mark_as_read_values"
                     android:persistent="true"
-                    android:defaultValue="true"/>
+                    android:defaultValue="read"/>
 
             <EditTextPreference
                     android:key="imap_folder"
@@ -223,7 +208,7 @@
                     android:summary="@string/ui_max_items_per_restore_desc"
                     android:entries="@array/max_items_per_restore_entries"
                     android:entryValues="@array/max_items_per_restore_values"
-                    android:defaultValue="-1"
+                    android:defaultValue="500"
                     android:persistent="true"/>
 
             <CheckBoxPreference
@@ -248,14 +233,6 @@
                 android:key="confirm_action"
                 android:summary="@string/ui_confirm_action_desc"
                 android:defaultValue="false"/>
-
-        <CheckBoxPreference
-                android:key="acra.enable"
-                android:title="@string/pref_disable_acra"
-                android:summaryOn="@string/pref_acra_enabled"
-                android:summaryOff="@string/pref_acra_disabled"
-                android:persistent="true"
-                android:defaultValue="true"/>
 
         <CheckBoxPreference
                 android:key="app_log"

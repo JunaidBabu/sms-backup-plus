@@ -30,7 +30,30 @@ import com.zegoggles.smssync.mail.DataType;
 import java.util.Locale;
 
 import static com.zegoggles.smssync.App.TAG;
-import static com.zegoggles.smssync.preferences.Preferences.Keys.*;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.APP_LOG;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.APP_LOG_DEBUG;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.BACKUP_CONTACT_GROUP;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.CALLLOG_SYNC_CALENDAR;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.CALLLOG_SYNC_CALENDAR_ENABLED;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.CONFIRM_ACTION;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.ENABLE_AUTO_BACKUP;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.FIRST_USE;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.INCOMING_TIMEOUT_SECONDS;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.LAST_VERSION_CODE;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.MAIL_SUBJECT_PREFIX;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.MARK_AS_READ;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.MARK_AS_READ_ON_RESTORE;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.MARK_AS_READ_TYPES;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.MAX_ITEMS_PER_RESTORE;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.MAX_ITEMS_PER_SYNC;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.NOTIFICATIONS;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.REFERENCE_UID;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.REGULAR_TIMEOUT_SECONDS;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.RESTORE_STARRED_ONLY;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.SMS_DEFAULT_PACKAGE;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.SMS_DEFAULT_PACKAGE_CHANGE_SEEN;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.THIRD_PARTY_INTEGRATION;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.WIFI_ONLY;
 
 public class Preferences {
     private final Context context;
@@ -55,7 +78,9 @@ public class Preferences {
         REFERENCE_UID("reference_uid"),
         MAIL_SUBJECT_PREFIX("mail_subject_prefix"),
         RESTORE_STARRED_ONLY("restore_starred_only"),
+        @Deprecated
         MARK_AS_READ("mark_as_read"),
+        MARK_AS_READ_TYPES("mark_as_read_types"),
         MARK_AS_READ_ON_RESTORE("mark_as_read_on_restore"),
         THIRD_PARTY_INTEGRATION("third_party_integration"),
         APP_LOG("app_log"),
@@ -67,6 +92,8 @@ public class Preferences {
         IMAP_SETTINGS("imap_settings"),
         DONATE("donate"),
         BACKUP_SETTINGS_SCREEN("auto_backup_settings_screen"),
+        SMS_DEFAULT_PACKAGE("sms_default_package"),
+        SMS_DEFAULT_PACKAGE_CHANGE_SEEN("sms_default_package_change_seen"),
         ;
 
         public final String key;
@@ -159,8 +186,18 @@ public class Preferences {
         return getStringAsInt(REGULAR_TIMEOUT_SECONDS, Defaults.REGULAR_TIMEOUT_SECONDS);
     }
 
-    public boolean getMarkAsRead() {
-        return preferences.getBoolean(MARK_AS_READ.key, Defaults.MARK_AS_READ);
+    public void migrateMarkAsRead() {
+        if (preferences.contains(MARK_AS_READ.key)) {
+            SharedPreferences.Editor editor = preferences.edit();
+            boolean markAsRead = preferences.getBoolean(MARK_AS_READ.key, true);
+            editor.putString(MARK_AS_READ_TYPES.key, markAsRead ? MarkAsReadTypes.READ.name() : MarkAsReadTypes.UNREAD.name());
+            editor.remove(MARK_AS_READ.key);
+            editor.commit();
+        }
+    }
+
+    public MarkAsReadTypes getMarkAsReadType() {
+        return getDefaultType(MARK_AS_READ_TYPES.key, MarkAsReadTypes.class, MarkAsReadTypes.READ);
     }
 
     public boolean getMarkAsReadOnRestore() {
@@ -183,6 +220,29 @@ public class Preferences {
         } else {
             return false;
         }
+    }
+
+    public boolean setSmsDefaultPackage(String smsPackage) {
+        return preferences.edit().putString(SMS_DEFAULT_PACKAGE.key, smsPackage).commit();
+    }
+
+    public String getSmsDefaultPackage() {
+        return preferences.getString(SMS_DEFAULT_PACKAGE.key, null);
+    }
+
+    public boolean hasSeenSmsDefaultPackageChangeDialog() {
+        return preferences.contains(SMS_DEFAULT_PACKAGE_CHANGE_SEEN.key);
+    }
+
+    public boolean setSeenSmsDefaultPackageChangeDialog() {
+        return preferences.edit().putBoolean(SMS_DEFAULT_PACKAGE_CHANGE_SEEN.key, true).commit();
+    }
+
+    public void reset() {
+        preferences.edit()
+                .remove(SMS_DEFAULT_PACKAGE_CHANGE_SEEN.key)
+                .remove(SMS_DEFAULT_PACKAGE.key)
+                .commit();
     }
 
     public boolean isNotificationEnabled() {
@@ -262,22 +322,6 @@ public class Preferences {
         } catch (PackageManager.NameNotFoundException e) {
             return false;
         }
-    }
-
-    boolean isWhatsAppInstalled() {
-        try {
-            context.getPackageManager().getPackageInfo(
-                    "com.whatsapp",
-                    PackageManager.GET_META_DATA);
-            return true;
-        } catch (PackageManager.NameNotFoundException e) {
-            return false;
-        }
-    }
-
-    @SuppressWarnings("UnusedDeclaration")
-    public boolean isWhatsAppInstalledAndPrefNotSet() {
-        return isWhatsAppInstalled() && !preferences.contains(DataType.WHATSAPP.backupEnabledPreference);
     }
 
     <T extends Enum<T>> T getDefaultType(String pref, Class<T> tClazz, T defaultType) {

@@ -53,8 +53,9 @@ import com.zegoggles.smssync.BuildConfig;
 import com.zegoggles.smssync.Consts;
 import com.zegoggles.smssync.R;
 import com.zegoggles.smssync.activity.auth.AccountManagerAuthActivity;
-import com.zegoggles.smssync.activity.auth.WebAuthActivity;
+import com.zegoggles.smssync.activity.auth.OAuth2WebAuthActivity;
 import com.zegoggles.smssync.activity.donation.DonationActivity;
+import com.zegoggles.smssync.auth.OAuth2Client;
 import com.zegoggles.smssync.calendar.CalendarAccessor;
 import com.zegoggles.smssync.contacts.ContactAccessor;
 import com.zegoggles.smssync.mail.BackupImapStore;
@@ -69,12 +70,9 @@ import com.zegoggles.smssync.service.BackupType;
 import com.zegoggles.smssync.service.SmsBackupService;
 import com.zegoggles.smssync.service.SmsRestoreService;
 import com.zegoggles.smssync.service.state.RestoreState;
-import com.zegoggles.smssync.tasks.OAuthCallbackTask;
-import com.zegoggles.smssync.tasks.RequestTokenTask;
+import com.zegoggles.smssync.tasks.OAuth2CallbackTask;
 import com.zegoggles.smssync.utils.AppLog;
 import com.zegoggles.smssync.utils.ListPreferenceHelper;
-import org.acra.ACRA;
-import org.jetbrains.annotations.Nullable;
 
 import java.text.DateFormat;
 import java.util.ArrayList;
@@ -83,8 +81,22 @@ import java.util.List;
 import java.util.Locale;
 
 import static com.zegoggles.smssync.App.TAG;
-import static com.zegoggles.smssync.mail.DataType.*;
-import static com.zegoggles.smssync.preferences.Preferences.Keys.*;
+import static com.zegoggles.smssync.mail.DataType.CALLLOG;
+import static com.zegoggles.smssync.mail.DataType.MMS;
+import static com.zegoggles.smssync.mail.DataType.SMS;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.BACKUP_CONTACT_GROUP;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.BACKUP_SETTINGS_SCREEN;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.CALLLOG_SYNC_CALENDAR;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.CALLLOG_SYNC_CALENDAR_ENABLED;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.CONNECTED;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.DONATE;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.ENABLE_AUTO_BACKUP;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.IMAP_SETTINGS;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.INCOMING_TIMEOUT_SECONDS;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.MAX_ITEMS_PER_RESTORE;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.MAX_ITEMS_PER_SYNC;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.REGULAR_TIMEOUT_SECONDS;
+import static com.zegoggles.smssync.preferences.Preferences.Keys.WIFI_ONLY;
 
 /**
  * This is the main activity showing the status of the SMS Sync service and
@@ -107,13 +119,13 @@ public class MainActivity extends PreferenceActivity {
     private AuthPreferences authPreferences;
     private Preferences preferences;
     private StatusPreference statusPref;
-    private @Nullable Uri mAuthorizeUri;
-    private @Nullable String currentSmsPackage;
+    private OAuth2Client oauth2Client;
 
     @Override
     public void onCreate(Bundle bundle) {
         super.onCreate(bundle);
         authPreferences = new AuthPreferences(this);
+        oauth2Client = new OAuth2Client(authPreferences.getOAuth2ClientId());
         preferences = new Preferences(this);
         addPreferencesFromResource(R.xml.preferences);
 
@@ -133,16 +145,13 @@ public class MainActivity extends PreferenceActivity {
 
         checkAndDisplayDroidWarning();
 
+        preferences.migrateMarkAsRead();
+
         if (preferences.shouldShowAboutDialog()) {
             show(Dialogs.ABOUT);
         }
 
-        // enable when whatsapp backup is stable
-        /*
-        if (PrefStore.isWhatsAppInstalledAndPrefNotSet(this)) {
-            show(Dialogs.ACTIVATE_WHATSAPP);
-        }
-        */
+        checkDefaultSmsApp();
 
         setupStrictMode();
         App.bus.register(this);
@@ -180,8 +189,10 @@ public class MainActivity extends PreferenceActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        App.bus.unregister(this);
-        App.bus.unregister(statusPref);
+        try {
+            App.bus.unregister(this);
+        } catch (Exception ignored) {
+        }
     }
 
     @Override
@@ -215,16 +226,20 @@ public class MainActivity extends PreferenceActivity {
 
         switch (requestCode) {
             case REQUEST_CHANGE_DEFAULT_SMS_PACKAGE: {
-                if (currentSmsPackage != null) {
+                preferences.setSeenSmsDefaultPackageChangeDialog();
+
+                if (preferences.getSmsDefaultPackage() != null) {
                     startRestore();
                 }
                 break;
             }
             case REQUEST_WEB_AUTH: {
-                Uri uri = data.getData();
-                if (uri != null && uri.toString().startsWith(Consts.CALLBACK_URL)) {
+                final String code = data.getStringExtra(OAuth2WebAuthActivity.EXTRA_CODE);
+                if (!TextUtils.isEmpty(code)) {
                     show(Dialogs.ACCESS_TOKEN);
-                    new OAuthCallbackTask(this).execute(data);
+                    new OAuth2CallbackTask(oauth2Client).execute(code);
+                } else {
+                    show(Dialogs.ACCESS_TOKEN_ERROR);
                 }
                 break;
             }
@@ -240,28 +255,15 @@ public class MainActivity extends PreferenceActivity {
     }
 
     @Subscribe public void restoreStateChanged(final RestoreState newState) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT
-                && currentSmsPackage != null
-                && newState.isFinished()) {
-            restoreDefaultSmsProvider(currentSmsPackage);
+        if (isSmsBackupDefaultSmsApp() && newState.isFinished()) {
+            restoreDefaultSmsProvider(preferences.getSmsDefaultPackage());
         }
     }
 
-    @Subscribe public void onAuthorizedURLReceived(RequestTokenTask.AuthorizedURLReceived authorizedURLReceived) {
-        dismiss(Dialogs.REQUEST_TOKEN);
-        this.mAuthorizeUri = authorizedURLReceived.uri;
-        if (mAuthorizeUri != null) {
-            show(Dialogs.CONNECT);
-        } else {
-            show(Dialogs.CONNECT_TOKEN_ERROR);
-        }
-    }
-
-    @Subscribe public void onOAuthCallback(OAuthCallbackTask.OAuthCallbackEvent event) {
+    @Subscribe public void onOAuth2Callback(OAuth2CallbackTask.OAuth2CallbackEvent event) {
         dismiss(Dialogs.ACCESS_TOKEN);
         if (event.valid()) {
-            authPreferences.setOauthUsername(event.username);
-            authPreferences.setOauthTokens(event.token, event.tokenSecret);
+            authPreferences.setOauth2Token(event.token.userName, event.token.accessToken, event.token.refreshToken);
             onAuthenticated();
         } else {
             show(Dialogs.ACCESS_TOKEN_ERROR);
@@ -487,18 +489,28 @@ public class MainActivity extends PreferenceActivity {
         final Intent intent = new Intent(this, SmsRestoreService.class);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            String defaultSmsPackage = Telephony.Sms.getDefaultSmsPackage(this);
-            Log.d(TAG, "default SMS package: "+defaultSmsPackage);
-            if (!getPackageName().equals(defaultSmsPackage)) {
-                this.currentSmsPackage = defaultSmsPackage;
-
-                requestDefaultSmsPackageChange();
-            } else {
+            if (isSmsBackupDefaultSmsApp()) {
                 startService(intent);
+            } else {
+                String defaultSmsPackage = Telephony.Sms.getDefaultSmsPackage(this);
+                Log.d(TAG, "default SMS package: " + defaultSmsPackage);
+                preferences.setSmsDefaultPackage(defaultSmsPackage);
+
+                if (preferences.hasSeenSmsDefaultPackageChangeDialog()) {
+                    requestDefaultSmsPackageChange();
+                } else {
+                    show(Dialogs.SMS_DEFAULT_PACKAGE_CHANGE);
+                }
             }
         } else {
             startService(intent);
         }
+    }
+
+    @TargetApi(Build.VERSION_CODES.KITKAT)
+    private boolean isSmsBackupDefaultSmsApp() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT &&
+                getPackageName().equals(Telephony.Sms.getDefaultSmsPackage(this));
     }
 
     @Override
@@ -574,7 +586,7 @@ public class MainActivity extends PreferenceActivity {
                         .setTitle(R.string.ui_dialog_reset_title)
                         .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
                             public void onClick(DialogInterface dialog, int which) {
-                                DataType.clearLastSyncData(MainActivity.this);
+                                reset();
                                 dismissDialog(id);
                             }
                         })
@@ -607,10 +619,9 @@ public class MainActivity extends PreferenceActivity {
                         .setNegativeButton(android.R.string.cancel, null)
                         .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
                             public void onClick(DialogInterface dialog, int which) {
-                                if (mAuthorizeUri != null) {
-                                    startActivityForResult(new Intent(MainActivity.this, WebAuthActivity.class)
-                                            .setData(mAuthorizeUri), REQUEST_WEB_AUTH);
-                                }
+                            startActivityForResult(new Intent(MainActivity.this, OAuth2WebAuthActivity.class)
+                                .setData(oauth2Client.requestUrl()), REQUEST_WEB_AUTH);
+
                                 dismissDialog(id);
                             }
                         }).create();
@@ -645,7 +656,8 @@ public class MainActivity extends PreferenceActivity {
                         .setNegativeButton(android.R.string.cancel, null)
                         .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
                             public void onClick(DialogInterface dialog, int which) {
-                                authPreferences.clearOauthData();
+                                authPreferences.clearOAuth1Data();
+                                authPreferences.clearOauth2Data();
                                 DataType.clearLastSyncData(MainActivity.this);
                                 updateConnected();
                             }
@@ -654,22 +666,6 @@ public class MainActivity extends PreferenceActivity {
                 title = getString(R.string.ui_dialog_upgrade_title);
                 msg = getString(R.string.ui_dialog_upgrade_msg);
                 break;
-
-            case ACTIVATE_WHATSAPP:
-                return new AlertDialog.Builder(this)
-                        .setTitle(R.string.ui_dialog_enable_whatsapp_title)
-                        .setMessage(R.string.ui_dialog_enable_whatsapp_message)
-                        .setNegativeButton(android.R.string.yes, new DialogInterface.OnClickListener() {
-                            @Override
-                            public void onClick(DialogInterface dialogInterface, int i) {
-                                setWhatsAppEnabled(false);
-                            }
-                        })
-                        .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
-                            public void onClick(DialogInterface dialog, int which) {
-                                setWhatsAppEnabled(true);
-                            }
-                        }).create();
             case BROKEN_DROIDX:
                 title = getString(R.string.ui_dialog_brokendroidx_title);
                 msg = getString(R.string.ui_dialog_brokendroidx_msg);
@@ -687,11 +683,26 @@ public class MainActivity extends PreferenceActivity {
                         .setMessage(R.string.ui_dialog_confirm_action_msg)
                         .setNegativeButton(android.R.string.cancel, null)
                         .create();
+            case SMS_DEFAULT_PACKAGE_CHANGE:
+                return new AlertDialog.Builder(this)
+                        .setTitle(R.string.ui_dialog_sms_default_package_change_title)
+                        .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface dialog, int which) {
+                                requestDefaultSmsPackageChange();
+                            }
+                        })
+                        .setMessage(R.string.ui_dialog_sms_default_package_change_msg)
+                        .create();
 
             default:
                 return null;
         }
         return createMessageDialog(id, title, msg);
+    }
+
+    private void reset() {
+        DataType.clearLastSyncData(MainActivity.this);
+        preferences.reset();
     }
 
     private Dialog createMessageDialog(final int id, String title, String msg) {
@@ -831,7 +842,7 @@ public class MainActivity extends PreferenceActivity {
             public boolean onPreferenceChange(Preference preference, Object change) {
                 boolean newValue = (Boolean) change;
                 if (newValue) {
-                    if (Integer.parseInt(Build.VERSION.SDK) >= 5) {
+                    if (Build.VERSION.SDK_INT >= 5) {
                         // use account manager on newer phones
                         startActivityForResult(new Intent(MainActivity.this, AccountManagerAuthActivity.class), REQUEST_PICK_ACCOUNT);
                     } else {
@@ -903,7 +914,6 @@ public class MainActivity extends PreferenceActivity {
             });
         } catch (Exception e) {
             Log.w(TAG, e);
-            ACRA.getErrorReporter().handleSilentException(e);
         }
     }
     @TargetApi(11) @SuppressWarnings({"ConstantConditions", "PointlessBooleanExpression"})
@@ -929,34 +939,30 @@ public class MainActivity extends PreferenceActivity {
         }
     }
 
-    private void setWhatsAppEnabled(boolean enabled) {
-        WHATSAPP.setBackupEnabled(MainActivity.this, enabled);
-        updateAutoBackupEnabledSummary();
-    }
-
     @TargetApi(Build.VERSION_CODES.KITKAT)
     private void requestDefaultSmsPackageChange() {
         final Intent changeIntent = new Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT)
-            .putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, getPackageName());
+                .putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, getPackageName());
 
         startActivityForResult(changeIntent, REQUEST_CHANGE_DEFAULT_SMS_PACKAGE);
     }
 
-
     @TargetApi(Build.VERSION_CODES.KITKAT)
     private void restoreDefaultSmsProvider(String smsPackage) {
         Log.d(TAG, "restoring SMS provider "+smsPackage);
-        final Intent changeDefaultIntent = new Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT)
-            .putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, smsPackage);
+        if (!TextUtils.isEmpty(smsPackage)) {
+            final Intent changeDefaultIntent = new Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT)
+                    .putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, smsPackage);
 
-        startActivity(changeDefaultIntent);
+            startActivity(changeDefaultIntent);
+        }
     }
 
     private void handleAccountManagerAuth(Intent data) {
         String token = data.getStringExtra(AccountManagerAuthActivity.EXTRA_TOKEN);
         String account = data.getStringExtra(AccountManagerAuthActivity.EXTRA_ACCOUNT);
         if (!TextUtils.isEmpty(token) && !TextUtils.isEmpty(account)) {
-            authPreferences.setOauth2Token(account, token);
+            authPreferences.setOauth2Token(account, token, null);
             onAuthenticated();
         } else {
             String error = data.getStringExtra(AccountManagerAuthActivity.EXTRA_ERROR);
@@ -967,7 +973,12 @@ public class MainActivity extends PreferenceActivity {
     }
 
     private void handleFallbackAuth() {
-        show(Dialogs.REQUEST_TOKEN);
-        new RequestTokenTask(this).execute(Consts.CALLBACK_URL);
+        show(Dialogs.CONNECT);
+    }
+
+    private void checkDefaultSmsApp() {
+        if (isSmsBackupDefaultSmsApp() && !SmsRestoreService.isServiceWorking()) {
+            restoreDefaultSmsProvider(preferences.getSmsDefaultPackage());
+        }
     }
 }
